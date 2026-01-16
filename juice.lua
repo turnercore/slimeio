@@ -194,10 +194,10 @@ function hitstop(duration)
 end
 
 function update_juice()
-  update_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes, state.rocket_trails })
+  update_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
   update_ss()
 end
 
 function draw_juice()
-  draw_anim_lists({ state.explosions, state.rocket_trails, state.death_anims, state.muzzle_flashes, state.screen_flashes })
+  draw_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
 end
