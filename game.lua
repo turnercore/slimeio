@@ -71,7 +71,6 @@ function _draw()
     return
   end
   apply_ss()
-
   draw_room()
   draw_slime()
   draw_spawn_markers()
@@ -81,9 +80,7 @@ function _draw()
   draw_enemy_projectiles()
   draw_enemies()
   draw_player()
-  draw_anims(state.explosions)
-  draw_anims(state.death_anims)
-  draw_anims(state.screen_flashes)
+  draw_anim_lists({ state.explosions, state.death_anims, state.screen_flashes })
   draw_fx()
   draw_ui()
   draw_game_over()
