@@ -1,4 +1,4 @@
--- generic anim helpers
+-- -- generic anim helpers
 function update_anim_lists(lists)
   for _, anim_list in pairs(lists) do
     if anim_list then update_anim(anim_list) end
@@ -125,15 +125,15 @@ function add_screen_flash(duration, col)
   return f
 end
 
-function add_sprite_flash(obj, base_cols, flash_col, duration)
-  obj.flash = {
-    is_flashing = true,
-    t = duration or 4,
-    dur = duration or 4,
-    flash_col = flash_col or 7,
-    base_cols = base_cols or { 8 }
-  }
-end
+-- function add_sprite_flash(obj, base_cols, flash_col, duration)
+--   obj.flash = {
+--     is_flashing = true,
+--     t = duration or 4,
+--     dur = duration or 4,
+--     flash_col = flash_col or 7,
+--     base_cols = base_cols or { 8 }
+--   }
+-- end
 
 function add_death_anim(x, y, frames, rate, w, h, pal)
   local a = {

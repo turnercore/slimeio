@@ -16,6 +16,7 @@ WEAPON_SPRITES = {
 state = {}
 
 function _init()
+  poke(0x5f2e, 1)
   srand(time())
   state = {
     mode = "menu",
@@ -29,6 +30,7 @@ function _init()
     enemies = {},
     drops = {},
     projectiles = {},
+    enemy_projectiles = {},
     corpses = {},
     effects = {},
     explosions = {},
@@ -39,7 +41,9 @@ function _init()
     pause_t = 0,
     t = 0,
     floor_style = nil,
-    logo_t = 0
+    logo_t = 0,
+    pickup_msg = nil,
+    pickup_t = 0
   }
 
   state.floor_style = pick_floor_style()
@@ -71,6 +75,7 @@ function _update()
   end
   update_enemies()
   update_projectiles()
+  update_enemy_projectiles()
   update_drops()
   update_juice()
 end
@@ -89,6 +94,7 @@ function _draw()
   draw_corpses()
   draw_drops()
   draw_projectiles()
+  draw_enemy_projectiles()
   draw_enemies()
   draw_player()
   draw_anims(state.explosions)
@@ -262,6 +268,7 @@ function init_player()
     combo_t = 0,
     attack_cd = 0,
     attack_held = false,
+    dead_t = 0,
     throw_cd = 0,
     throw_held = false,
     weapons = {}
@@ -272,6 +279,7 @@ function enter_room(rx, ry, from_init)
   state.room_x, state.room_y = rx, ry
   state.enemies = {}
   state.projectiles = {}
+  state.enemy_projectiles = {}
   local room = state.rooms[rx][ry]
   room.drops = room.drops or {}
   room.corpses = room.corpses or {}
@@ -289,7 +297,7 @@ function enter_room(rx, ry, from_init)
       local count = flr(rnd(3)) + 2
       room.spawn_list = {}
       for i = 1, count do
-        local e = make_enemy()
+        local e = make_enemy(pick_enemy_kind())
         add(room.spawn_list, e)
       end
     end
@@ -299,7 +307,7 @@ function enter_room(rx, ry, from_init)
     local count = flr(rnd(2)) + 1
     room.spawn_list = {}
     for i = 1, count do
-      local e = make_enemy()
+      local e = make_enemy(pick_enemy_kind())
       add(room.spawn_list, e)
     end
   end
@@ -314,8 +322,8 @@ function enter_room(rx, ry, from_init)
   end
 end
 
-function make_enemy()
-  return {
+function make_enemy(kind)
+  local e = {
     x = flr(rnd(96)) + 16,
     y = flr(rnd(96)) + 16,
     w = 8,
@@ -324,12 +332,45 @@ function make_enemy()
     max_hp = 3,
     dmg = 1,
     speed = 0.6,
-    stun_t = 0
+    stun_t = 0,
+    frames = { 17, 18, 19, 18 },
+    anim_speed = 8,
+    death_frames = { 20, 21 },
+    corpse_spr = 21,
+    kind = kind or "base"
   }
+  if kind == "big" then
+    e.hp = 6
+    e.max_hp = 6
+    e.speed = 0.4
+    e.frames = { 36, 37, 38, 37 }
+    e.death_frames = { 39, 40 }
+    e.corpse_spr = 40
+  elseif kind == "ranged" then
+    e.hp = 2
+    e.max_hp = 2
+    e.speed = 0
+    e.no_move = true
+    e.no_attack = true
+    e.frames = { 41, 42, 43, 42 }
+    e.death_frames = { 44, 45 }
+    e.corpse_spr = 45
+    e.shoot_cd = 60
+    e.shoot_t = flr(rnd(30))
+    e.projectile_dmg = 1
+  elseif kind == "fast" then
+    e.hp = 2
+    e.max_hp = 2
+    e.speed = 1.1
+    e.frames = { 52, 53, 54, 53 }
+    e.death_frames = { 55, 56 }
+    e.corpse_spr = 56
+  end
+  return e
 end
 
 function make_tutorial_enemy()
-  local e = make_enemy()
+  local e = make_enemy("base")
   e.no_attack = true
   e.no_move = true
   e.force_drop = true
@@ -338,10 +379,23 @@ function make_tutorial_enemy()
   return e
 end
 
+function pick_enemy_kind()
+  local r = rnd(1)
+  if r < 0.5 then return "base" end
+  if r < 0.7 then return "big" end
+  if r < 0.85 then return "ranged" end
+  return "fast"
+end
+
 function update_player()
   local p = state.player
   if p.hp <= 0 then
-    if btnp(4) or btnp(5) then
+    if not p.dead_t then
+      p.dead_t = 150
+    elseif p.dead_t > 0 then
+      p.dead_t -= 1
+    end
+    if p.dead_t <= 0 and (btnp(4) or btnp(5)) then
       _init()
     end
     return true
@@ -592,8 +646,8 @@ function update_enemies()
     local e = state.enemies[i]
     if e.hp <= 0 then
       add_explosion(e.x + 4, e.y + 4, 1, 5, 8)
-      add_death_anim(e.x + 4, e.y + 4, { 20, 21 }, 6, 1, 1)
-      add(state.corpses, { x = e.x, y = e.y, spr = 21 })
+      add_death_anim(e.x + 4, e.y + 4, e.death_frames or { 20, 21 }, 6, 1, 1)
+      add(state.corpses, { x = e.x, y = e.y, spr = e.corpse_spr or 21 })
       if e.force_drop or rnd(1) < 0.6 then
         add(state.drops, make_drop(e.x, e.y))
       end
@@ -623,6 +677,14 @@ function update_enemies()
               return room_collides(nx, ny, e.w, e.h)
             end
           )
+        end
+      end
+
+      if e.kind == "ranged" and p.hp > 0 then
+        e.shoot_t = (e.shoot_t or 0) - 1
+        if e.shoot_t <= 0 then
+          spawn_enemy_projectile(e, p)
+          e.shoot_t = e.shoot_cd or 60
         end
       end
 
@@ -668,12 +730,66 @@ function update_projectiles()
   end
 end
 
+function spawn_enemy_projectile(e, p)
+  local ex = e.x + e.w / 2
+  local ey = e.y + e.h / 2
+  local px = p.x + p.w / 2
+  local py = p.y + p.h / 2
+  local dx = px - ex
+  local dy = py - ey
+  local len = sqrt(dx * dx + dy * dy)
+  if len <= 0 then
+    dx, dy = 1, 0
+    len = 1
+  end
+  dx /= len
+  dy /= len
+  add(
+    state.enemy_projectiles, {
+      x = ex - 1,
+      y = ey - 1,
+      w = 2,
+      h = 2,
+      dx = dx * 1.6,
+      dy = dy * 1.6,
+      dmg = e.projectile_dmg or 1
+    }
+  )
+end
+
+function update_enemy_projectiles()
+  local p = state.player
+  for i = #state.enemy_projectiles, 1, -1 do
+    local pr = state.enemy_projectiles[i]
+    local nx, ny = pr.x + pr.dx, pr.y + pr.dy
+    if room_collides(nx, ny, pr.w, pr.h) then
+      deli(state.enemy_projectiles, i)
+    else
+      pr.x, pr.y = nx, ny
+      if p.hp > 0 and p.invuln_t <= 0 and aabb(pr.x, pr.y, pr.w, pr.h, p.x, p.y, p.w, p.h) then
+        player_hit({ x = pr.x, y = pr.y }, pr.dmg or 1)
+        deli(state.enemy_projectiles, i)
+      end
+    end
+  end
+end
+
 function apply_throw_impact(pr)
   local cx = pr.x + pr.w / 2
   local cy = pr.y + pr.h / 2
   local aoe_r = 16
   local aoe_r2 = aoe_r * aoe_r
   local hit_any = false
+  local hit_target = nil
+  for e in all(state.enemies) do
+    if aabb(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
+      hit_target = e
+      break
+    end
+  end
+  if hit_target then
+    damage_enemy(hit_target, pr.dmg or 1, true, cx, cy, 2)
+  end
   for e in all(state.enemies) do
     local ex = e.x + e.w / 2
     local ey = e.y + e.h / 2
@@ -692,9 +808,6 @@ function apply_throw_impact(pr)
         )
       end
       hit_any = true
-    end
-    if aabb(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
-      damage_enemy(e, pr.dmg or 1, true, cx, cy, 2)
     end
   end
   if hit_any then
@@ -717,6 +830,8 @@ function update_drops()
       if #p.weapons < 4 then
         local stats = weapon_stats(d.spr)
         add(p.weapons, { spr = d.spr, dmg = d.dmg or stats.dmg, dur = d.dur or stats.dur })
+        state.pickup_msg = weapon_name(d.spr) .. ": " .. (d.dmg or stats.dmg) .. "DMG, " .. (d.dur or stats.dur) .. "DUR"
+        state.pickup_t = 90
         deli(state.drops, i)
       end
     end
@@ -793,7 +908,7 @@ function make_drop(x, y)
 end
 
 function pick_floor_style()
-  local solid_cols = { -1, -2, -3, -4, -5, -6, -7 }
+  local solid_cols = { -16, -15, -14, -13, -12, -11 }
   return { kind = "solid", col = solid_cols[flr(rnd(#solid_cols)) + 1] }
 end
 
@@ -805,6 +920,16 @@ function weapon_stats(spr)
     [WEAPON_SPRITES.BROOM] = { dmg = 1, dur = 1 }
   }
   return stats[spr] or { dmg = 1, dur = 1 }
+end
+
+function weapon_name(spr)
+  local names = {
+    [WEAPON_SPRITES.SWORD] = "SWORD",
+    [WEAPON_SPRITES.PAN] = "POT",
+    [WEAPON_SPRITES.SHIELD] = "SHIELD",
+    [WEAPON_SPRITES.BROOM] = "BROOM"
+  }
+  return names[spr] or "WEAPON"
 end
 
 function handle_room_transition()
@@ -911,6 +1036,12 @@ function draw_player()
   local p = state.player
   if p.hp <= 0 then
     spr(PLAYER_SPIRTE[6], p.x, p.y)
+    if p.dead_t and p.dead_t <= 0 then
+      rectfill(16, 48, 111, 80, 0)
+      print("you have slimed", 28, 56, 7)
+      print("press x or o", 34, 68, 6)
+      print("to restart", 40, 76, 6)
+    end
     return
   end
   local flicker = p.invuln_t > 0 and (p.invuln_t % 4) < 2
@@ -991,8 +1122,9 @@ end
 
 function draw_enemies()
   for e in all(state.enemies) do
-    local frames = { 17, 18, 19, 18 }
-    local idx = ((state.t or 0) \ 8) % #frames + 1
+    local frames = e.frames or { 17, 18, 19, 18 }
+    local spd = e.anim_speed or 8
+    local idx = ((state.t or 0) \ spd) % #frames + 1
     spr(frames[idx], e.x, e.y)
     if e.max_hp and e.hp < e.max_hp then
       local ratio = e.hp / e.max_hp
@@ -1011,6 +1143,12 @@ function draw_projectiles()
   for pr in all(state.projectiles) do
     local spr_id, flipx, flipy = weapon_sprite_for_dir(pr.spr, pr.dx, pr.dy)
     spr(spr_id, pr.x, pr.y, 1, 1, flipx, flipy)
+  end
+end
+
+function draw_enemy_projectiles()
+  for pr in all(state.enemy_projectiles) do
+    circfill(pr.x + 1, pr.y + 1, 1, 8)
   end
 end
 

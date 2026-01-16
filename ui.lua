@@ -33,4 +33,14 @@ function draw_ui()
   end
   print("floor "..(state.level or 1), 96, 2, 7)
   print("room "..state.room_x..","..state.room_y, 80, 10, 7)
+
+  if state.pickup_t and state.pickup_t > 0 and state.pickup_msg then
+    state.pickup_t -= 1
+    local msg = state.pickup_msg
+    local w = #msg * 4
+    local x = (128 - w) \ 2
+    local y = 118
+    rectfill(x - 2, y - 1, x + w + 1, y + 6, 0)
+    print(msg, x, y, 7)
+  end
 end
