@@ -76,7 +76,11 @@ function draw_anims(anim_list)
         end
       end
       -- draw the sprite
-      spr(a.frames[idx], a.x, a.y, a.w or 1, a.h or 1, a.flipx or false, a.flipy or false)
+      if a.scale and a.scale > 1 then
+        draw_scaled_sprite(a.frames[idx], a.x, a.y, a.scale, a.flipx, a.flipy)
+      else
+        spr(a.frames[idx], a.x, a.y, a.w or 1, a.h or 1, a.flipx or false, a.flipy or false)
+      end
       -- reset palette
       pal()
       if not a.loop and not a.dec and a.t > spd * #a.frames then
@@ -135,12 +139,11 @@ end
 --   }
 -- end
 
-function add_death_anim(x, y, frames, rate, w, h, pal)
+function add_death_anim(x, y, frames, rate, scale, pal)
   local a = {
     x = x - 4,
     y = y - 4,
-    w = w or 1,
-    h = h or 1,
+    scale = scale or 1,
     pal = pal,
     frames = frames,
     anim_speed = rate or 4,
@@ -149,6 +152,19 @@ function add_death_anim(x, y, frames, rate, w, h, pal)
   }
   add(state.death_anims, a)
   return a
+end
+
+function draw_scaled_sprite(id, dx, dy, scale, flipx, flipy)
+  local s = scale or 1
+  if s <= 1 then
+    spr(id, dx, dy, 1, 1, flipx or false, flipy or false)
+    return
+  end
+  local sx = (id % 16) * 8
+  local sy = flr(id / 16) * 8
+  local dw = 8 * s
+  local dh = 8 * s
+  sspr(sx, sy, 8, 8, dx, dy, dw, dh, flipx or false, flipy or false)
 end
 
 -- screenshake helpers
@@ -197,11 +213,6 @@ function update_juice()
   update_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
   update_fx()
   update_ss()
-end
-
-function draw_juice()
-  draw_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
-  draw_fx()
 end
 
 -- particle helpers
@@ -288,4 +299,14 @@ function blood_fx(x, y, r, c_table, num)
       c_table
     )
   end
+end
+
+function game_over_overlay_dim()
+  -- screen -> spritesheet dim overlay
+  state.floor_color = 1
+  poke(0x5f54, 0x60)
+  pal(split "0,1,1,1,1,1,1,1,1,1,1,1,1,1,1")
+  sspr(0, 0, 128, 128, 0, 0, 128, 128)
+  pal()
+  poke(0x5f54, 0x00)
 end

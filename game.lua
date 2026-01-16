@@ -1,23 +1,8 @@
-PLAYER_SPIRTE = { 1, 2, 3, 4, 5, 6 }
-ENEMY_SPRITE = { 17, 18, 19 }
-WEAPON_SPRITES = {
-  SWORD = 10,
-  PAN = 11,
-  SHIELD = 12,
-  BROOM = 13
-}
-
--- Controls
--- X = Attack
--- O = Dodge
--- X + O = Throw Weapon (direction of last movement, default to right)
--- Movement arrow keys move the player up down left right top down game
-
 state = {}
 
 function _init()
-  poke(0x5f2e, 1)
-  srand(time())
+  --enable hidden colors
+  -- srand(time())
   state = {
     mode = "menu",
     map_w = 5,
@@ -40,13 +25,13 @@ function _init()
     paused = false,
     pause_t = 0,
     t = 0,
-    floor_style = nil,
     logo_t = 0,
+    score = 0,
     pickup_msg = nil,
-    pickup_t = 0
+    pickup_t = 0,
+    gameover_t = nil,
+    floor_color = rand_floor_color()
   }
-
-  state.floor_style = pick_floor_style()
   init_map()
   init_player()
   enter_room(state.room_x, state.room_y, true)
@@ -82,13 +67,12 @@ end
 
 function _draw()
   cls()
-  pal()
-  palt(0, true)
   if state.mode == "menu" then
     draw_menu()
     return
   end
   apply_ss()
+
   draw_room()
   draw_spawn_markers()
   draw_corpses()
@@ -102,6 +86,36 @@ function _draw()
   draw_anims(state.screen_flashes)
   draw_fx()
   draw_ui()
+  draw_game_over()
+end
+
+function draw_game_over()
+  local p = state.player
+  if p.hp > 0 then return end
+  game_over_overlay_dim()
+  -- rectfill(16, 44, 111, 88, 0)
+  local msg = "you have slime'd"
+  local score_txt = "score " .. (state.score or 0)
+  local mx = (128 - (#msg * 4)) \ 2
+  local sx = (128 - (#score_txt * 4)) \ 2
+  draw_shiny_text(msg, mx, 52, { 7, 11, 3, 8 }, state.gameover_t or 0)
+  print(score_txt, sx, 62, 7)
+  if p.dead_t and p.dead_t <= 0 then
+    local restart = "press x or o to restart"
+    local rx = (128 - (#restart * 4)) \ 2
+    print(restart, rx, 76, 6)
+  end
+end
+
+function draw_shiny_text(txt, x, y, cols, t)
+  local w = #txt * 4 + (#cols - 1) * 3
+  local h = 6
+  local cw = min(t, w)
+  for layer = 0, #cols - 1 do
+    clip(x, y, cw - 3 * layer, h)
+    print(txt, x, y, cols[layer + 1])
+  end
+  clip()
 end
 
 function draw_menu()
@@ -141,21 +155,22 @@ function draw_menu()
     state.menu_music_started = true
   end
   state.menu_ready = true
+  print("A JELLY'S JOURNEY DEMAKE", 16, 30, 6)
   if not state.menu_typed then
     state.menu_typed = true
     print("\^d2press o or x to start", 22, 40, 7)
   else
     print("press o or x to start", 22, 40, 7)
   end
-  print("controls", 8, 72, 6)
+  print("controls", 45, 72, 6)
   print("move", 8, 82, 11)
   print("attack", 8, 92, 11)
   print("dodge", 8, 102, 11)
   print("throw", 8, 112, 11)
-  print(": UP/DOWN/LEFT/RIGHT", 40, 82, 7)
-  print(": x (keyboard Z)", 40, 92, 7)
-  print(": o (keyboard X)", 40, 102, 7)
-  print(": x+o", 40, 112, 7)
+  print(": UP/DOWN/LEFT/RIGHT", 35, 82, 7)
+  print(": x (keyboard Z)", 35, 92, 7)
+  print(": o (keyboard X)", 35, 102, 7)
+  print(": x+o", 35, 112, 7)
 end
 
 function init_shiny_logo(txt, cols)
@@ -185,6 +200,11 @@ function draw_shiny_logo(txt, x, y, cols)
     print(txt, x, y, cols[layer + 1])
   end
   clip()
+end
+
+function restart()
+  music(-1)
+  _init()
 end
 
 function init_map()
@@ -268,7 +288,7 @@ function init_player()
     combo_t = 0,
     attack_cd = 0,
     attack_held = false,
-    dead_t = 0,
+    dead_t = nil,
     throw_cd = 0,
     throw_held = false,
     weapons = {}
@@ -313,7 +333,7 @@ function enter_room(rx, ry, from_init)
   end
   if room.spawn_pending and room.spawn_list then
     for e in all(room.spawn_list) do
-      add(room.spawn_markers, { x = e.x, y = e.y, t = 0 })
+      add(room.spawn_markers, { x = e.x, y = e.y, t = 0, scale = e.scale or 1 })
     end
   end
 
@@ -323,49 +343,50 @@ function enter_room(rx, ry, from_init)
 end
 
 function make_enemy(kind)
+  local lvl = state.level or 1
+  local hp_mult = 1 + 0.2 * max(0, lvl - 1)
+  local padding = kind == "big" and 24 or 16
   local e = {
-    x = flr(rnd(96)) + 16,
-    y = flr(rnd(96)) + 16,
+    x = flr(rnd(128 - padding * 2)) + padding,
+    y = flr(rnd(128 - padding * 2)) + padding,
     w = 8,
     h = 8,
-    hp = 3,
-    max_hp = 3,
+    scale = 1,
+    max_hp = flr(4 * hp_mult),
     dmg = 1,
     speed = 0.6,
     stun_t = 0,
-    frames = { 17, 18, 19, 18 },
+    frames = { 57, 58 },
     anim_speed = 8,
-    death_frames = { 20, 21 },
-    corpse_spr = 21,
+    death_frames = { 60, 61 },
     kind = kind or "base"
   }
   if kind == "big" then
-    e.hp = 6
-    e.max_hp = 6
-    e.speed = 0.4
+    e.max_hp = flr(10 * hp_mult)
+    e.speed = 0.25
+    e.w = 16
+    e.h = 16
+    e.scale = 2
     e.frames = { 36, 37, 38, 37 }
     e.death_frames = { 39, 40 }
-    e.corpse_spr = 40
   elseif kind == "ranged" then
-    e.hp = 2
-    e.max_hp = 2
+    e.max_hp = flr(1 * hp_mult)
     e.speed = 0
     e.no_move = true
     e.no_attack = true
-    e.frames = { 41, 42, 43, 42 }
+    e.frames = { 41, 42, 43 }
     e.death_frames = { 44, 45 }
-    e.corpse_spr = 45
     e.shoot_cd = 60
     e.shoot_t = flr(rnd(30))
     e.projectile_dmg = 1
   elseif kind == "fast" then
-    e.hp = 2
-    e.max_hp = 2
+    e.max_hp = flr(3 * hp_mult)
     e.speed = 1.1
-    e.frames = { 52, 53, 54, 53 }
+    e.frames = { 52, 53 }
     e.death_frames = { 55, 56 }
-    e.corpse_spr = 56
   end
+
+  e.hp = e.max_hp
   return e
 end
 
@@ -390,13 +411,17 @@ end
 function update_player()
   local p = state.player
   if p.hp <= 0 then
-    if not p.dead_t then
-      p.dead_t = 150
+    if p.dead_t == nil then
+      p.dead_t = 68
+      state.gameover_t = 0
     elseif p.dead_t > 0 then
       p.dead_t -= 1
     end
+    if state.gameover_t and state.gameover_t < 128 then
+      state.gameover_t += 1
+    end
     if p.dead_t <= 0 and (btnp(4) or btnp(5)) then
-      _init()
+      restart()
     end
     return true
   end
@@ -490,7 +515,7 @@ end
 function new_level()
   state.level = (state.level or 1) + 1
   state.room_x, state.room_y = 3, 3
-  state.floor_style = pick_floor_style()
+  state.floor_color = rand_floor_color()
   init_map()
   enter_room(state.room_x, state.room_y, true)
   state.player.x, state.player.y = 64, 64
@@ -601,15 +626,11 @@ function try_throw_weapon()
   local p = state.player
   if #p.weapons <= 0 then return end
   local weapon = p.weapons[1]
-  weapon.dur = max(0, (weapon.dur or 1) - 1)
-  if weapon.dur <= 0 then
-    weapon.dur = 0
-  end
-  local spawn_trail = weapon.dur > 0
+  local spawn_trail = weapon.dur and weapon.dur > 0
   deli(p.weapons, 1)
   p.combo_step = 0
   p.combo_t = 0
-  p.throw_cd = 60
+  p.throw_cd = 18
   local dir = p.last_dir
   local proj = {
     x = p.x + 2,
@@ -645,9 +666,11 @@ function update_enemies()
   for i = #state.enemies, 1, -1 do
     local e = state.enemies[i]
     if e.hp <= 0 then
+      state.score = (state.score or 0) + (e.max_hp or 0) * 10
       add_explosion(e.x + 4, e.y + 4, 1, 5, 8)
-      add_death_anim(e.x + 4, e.y + 4, e.death_frames or { 20, 21 }, 6, 1, 1)
-      add(state.corpses, { x = e.x, y = e.y, spr = e.corpse_spr or 21 })
+      local df = e.death_frames or { 20, 21 }
+      add_death_anim(e.x + e.w / 2, e.y + e.h / 2, df, 6, e.scale or 1)
+      add(state.corpses, { x = e.x, y = e.y, spr = df[#df], scale = e.scale or 1 })
       if e.force_drop or rnd(1) < 0.6 then
         add(state.drops, make_drop(e.x, e.y))
       end
@@ -724,6 +747,10 @@ function update_projectiles()
         end
       end
       if hit then
+        pr.dur = max(0, (pr.dur or 1) - 1)
+        if pr.dur > 0 then
+          add(state.drops, { x = pr.x, y = pr.y, spr = pr.spr, dmg = pr.dmg, dur = pr.dur })
+        end
         deli(state.projectiles, i)
       end
     end
@@ -746,10 +773,10 @@ function spawn_enemy_projectile(e, p)
   dy /= len
   add(
     state.enemy_projectiles, {
-      x = ex - 1,
-      y = ey - 1,
-      w = 2,
-      h = 2,
+      x = ex - 2,
+      y = ey - 2,
+      w = 4,
+      h = 4,
       dx = dx * 1.6,
       dy = dy * 1.6,
       dmg = e.projectile_dmg or 1
@@ -780,22 +807,13 @@ function apply_throw_impact(pr)
   local aoe_r = 16
   local aoe_r2 = aoe_r * aoe_r
   local hit_any = false
-  local hit_target = nil
-  for e in all(state.enemies) do
-    if aabb(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
-      hit_target = e
-      break
-    end
-  end
-  if hit_target then
-    damage_enemy(hit_target, pr.dmg or 1, true, cx, cy, 2)
-  end
   for e in all(state.enemies) do
     local ex = e.x + e.w / 2
     local ey = e.y + e.h / 2
     local dx = ex - cx
     local dy = ey - cy
     if dx * dx + dy * dy <= aoe_r2 then
+      damage_enemy(e, pr.dmg or 1, true, cx, cy, 2)
       e.stun_t = max(e.stun_t or 0, 90)
       local len = sqrt(dx * dx + dy * dy)
       if len > 0 then
@@ -891,7 +909,7 @@ function damage_enemy(e, dmg, from_throw, src_x, src_y, kb)
 end
 
 function make_drop(x, y)
-  local keys = { WEAPON_SPRITES.SWORD, WEAPON_SPRITES.PAN, WEAPON_SPRITES.SHIELD, WEAPON_SPRITES.BROOM }
+  local keys = { 10, 11, 12, 13 }
   local spr_id = keys[flr(rnd(#keys)) + 1]
   local stats = weapon_stats(spr_id)
   local ang = rnd(1)
@@ -907,27 +925,27 @@ function make_drop(x, y)
   }
 end
 
-function pick_floor_style()
-  local solid_cols = { -16, -15, -14, -13, -12, -11 }
-  return { kind = "solid", col = solid_cols[flr(rnd(#solid_cols)) + 1] }
+function rand_floor_color()
+  local cols = { 3, 15, 1 }
+  return cols[flr(rnd(#cols)) + 1]
 end
 
 function weapon_stats(spr)
   local stats = {
-    [WEAPON_SPRITES.SWORD] = { dmg = 2, dur = 1 },
-    [WEAPON_SPRITES.PAN] = { dmg = 1, dur = 2 },
-    [WEAPON_SPRITES.SHIELD] = { dmg = 1, dur = 3 },
-    [WEAPON_SPRITES.BROOM] = { dmg = 1, dur = 1 }
+    [10] = { dmg = 2, dur = 1 },
+    [11] = { dmg = 1, dur = 2 },
+    [12] = { dmg = 1, dur = 3 },
+    [13] = { dmg = 1, dur = 1 }
   }
   return stats[spr] or { dmg = 1, dur = 1 }
 end
 
 function weapon_name(spr)
   local names = {
-    [WEAPON_SPRITES.SWORD] = "SWORD",
-    [WEAPON_SPRITES.PAN] = "POT",
-    [WEAPON_SPRITES.SHIELD] = "SHIELD",
-    [WEAPON_SPRITES.BROOM] = "BROOM"
+    [10] = "SWORD",
+    [11] = "POT",
+    [12] = "SHIELD",
+    [13] = "BROOM"
   }
   return names[spr] or "WEAPON"
 end
@@ -999,58 +1017,38 @@ end
 
 function draw_room()
   local room = state.rooms[state.room_x][state.room_y]
-  draw_floor()
-  local t = 6
-  rectfill(0, 0, 127, t, 5)
-  rectfill(0, 127 - t, 127, 127, 5)
-  rectfill(0, 0, t, 127, 5)
-  rectfill(127 - t, 0, 127, 127, 5)
-
+  rectfill(0, 0, 127, 127, state.floor_color)
+  rectfill(0, 0, 127, 6, 5)
+  rectfill(0, 127 - 6, 127, 127, 5)
+  rectfill(0, 0, 6, 127, 5)
+  rectfill(127 - 6, 0, 127, 127, 5)
   local locked = #state.enemies > 0 or room.spawn_pending
   local door_w = 28
-  if room.doors.n and not locked then rectfill(64 - door_w / 2, 0, 64 + door_w / 2, t, 1) end
-  if room.doors.s and not locked then rectfill(64 - door_w / 2, 127 - t, 64 + door_w / 2, 127, 1) end
-  if room.doors.w and not locked then rectfill(0, 64 - door_w / 2, t, 64 + door_w / 2, 1) end
-  if room.doors.e and not locked then rectfill(127 - t, 64 - door_w / 2, 127, 64 + door_w / 2, 1) end
-
+  if room.doors.n and not locked then rectfill(64 - door_w / 2, 0, 64 + door_w / 2, 6, state.floor_color) end
+  if room.doors.s and not locked then rectfill(64 - door_w / 2, 127 - 6, 64 + door_w / 2, 127, state.floor_color) end
+  if room.doors.w and not locked then rectfill(0, 64 - door_w / 2, 6, 64 + door_w / 2, state.floor_color) end
+  if room.doors.e and not locked then rectfill(127 - 6, 64 - door_w / 2, 127, 64 + door_w / 2, state.floor_color) end
   if room.cleared and state.room_x == state.exit_room.x and state.room_y == state.exit_room.y then
-    draw_scaled_sprite(62, 56, 56, 16, 16)
+    draw_scaled_sprite(62, 56, 56, 2)
   end
   if state.room_x == state.start_room.x and state.room_y == state.start_room.y then
-    draw_scaled_sprite(63, 56, 56, 16, 16)
+    draw_scaled_sprite(63, 56, 56, 2)
   end
-end
-
-function draw_scaled_sprite(id, dx, dy, dw, dh)
-  local sx = (id % 16) * 8
-  local sy = flr(id / 16) * 8
-  sspr(sx, sy, 8, 8, dx, dy, dw, dh)
-end
-
-function draw_floor()
-  local style = state.floor_style
-  rectfill(0, 0, 127, 127, style and style.col or 1)
 end
 
 function draw_player()
   local p = state.player
   if p.hp <= 0 then
-    spr(PLAYER_SPIRTE[6], p.x, p.y)
-    if p.dead_t and p.dead_t <= 0 then
-      rectfill(16, 48, 111, 80, 0)
-      print("you have slimed", 28, 56, 7)
-      print("press x or o", 34, 68, 6)
-      print("to restart", 40, 76, 6)
-    end
+    spr(6, p.x, p.y)
     return
   end
   local flicker = p.invuln_t > 0 and (p.invuln_t % 4) < 2
   if not flicker then
-    local spr_id = PLAYER_SPIRTE[1]
-    if p.facing == "right" then spr_id = PLAYER_SPIRTE[2] end
-    if p.facing == "up" then spr_id = PLAYER_SPIRTE[3] end
-    if p.facing == "down" then spr_id = PLAYER_SPIRTE[4] end
-    if p.facing == "left" then spr_id = PLAYER_SPIRTE[5] end
+    local spr_id = 1
+    if p.facing == "right" then spr_id = 2 end
+    if p.facing == "up" then spr_id = 3 end
+    if p.facing == "down" then spr_id = 4 end
+    if p.facing == "left" then spr_id = 5 end
     spr(spr_id, p.x, p.y)
   end
   if p.attack_t > 0 and p.attack_boxes then
@@ -1125,10 +1123,10 @@ function draw_enemies()
     local frames = e.frames or { 17, 18, 19, 18 }
     local spd = e.anim_speed or 8
     local idx = ((state.t or 0) \ spd) % #frames + 1
-    spr(frames[idx], e.x, e.y)
+    draw_scaled_sprite(frames[idx], e.x, e.y, e.scale or 1)
     if e.max_hp and e.hp < e.max_hp then
       local ratio = e.hp / e.max_hp
-      local bw = 8
+      local bw = e.w
       local filled = flr(bw * ratio)
       rectfill(e.x, e.y - 3, e.x + bw - 1, e.y - 2, 0)
       rectfill(e.x, e.y - 3, e.x + filled - 1, e.y - 2, 11)
@@ -1148,7 +1146,7 @@ end
 
 function draw_enemy_projectiles()
   for pr in all(state.enemy_projectiles) do
-    circfill(pr.x + 1, pr.y + 1, 1, 8)
+    circfill(pr.x + 2, pr.y + 2, 2, 8)
   end
 end
 
@@ -1161,10 +1159,10 @@ end
 function weapon_sprite_for_dir(spr_id, dx, dy)
   if not spr_id then return nil, false, false end
   local horiz = {
-    [WEAPON_SPRITES.SWORD] = 26,
-    [WEAPON_SPRITES.PAN] = 27,
-    [WEAPON_SPRITES.SHIELD] = 28,
-    [WEAPON_SPRITES.BROOM] = 29
+    [10] = 26,
+    [11] = 27,
+    [12] = 28,
+    [13] = 29
   }
   local ax = abs(dx or 0)
   local ay = abs(dy or 0)
@@ -1177,7 +1175,7 @@ end
 
 function draw_corpses()
   for c in all(state.corpses) do
-    spr(c.spr, c.x, c.y)
+    draw_scaled_sprite(c.spr, c.x, c.y, c.scale or 1)
   end
 end
 
@@ -1190,6 +1188,6 @@ function draw_spawn_markers()
   for m in all(room.spawn_markers) do
     m.t = (m.t or 0) + 1
     local idx = (m.t \ 6) % #frames + 1
-    spr(frames[idx], m.x, m.y)
+    draw_scaled_sprite(frames[idx], m.x, m.y, m.scale or 1)
   end
 end
