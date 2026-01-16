@@ -14,13 +14,11 @@ function _init()
     level = 1,
     enemies = {},
     drops = {},
-    projectiles = {},
     enemy_projectiles = {},
     corpses = {},
     effects = {},
     explosions = {},
     death_anims = {},
-    muzzle_flashes = {},
     screen_flashes = {},
     paused = false,
     pause_t = 0,
@@ -74,6 +72,7 @@ function _draw()
   apply_ss()
 
   draw_room()
+  draw_slime()
   draw_spawn_markers()
   draw_corpses()
   draw_drops()
@@ -208,6 +207,7 @@ function restart()
 end
 
 function init_map()
+  state.rooms = {}
   state.start_room = { x = state.room_x, y = state.room_y }
   for x = 1, state.map_w do
     state.rooms[x] = {}
@@ -219,7 +219,8 @@ function init_map()
         spawn_pending = false,
         spawn_t = 0,
         drops = {},
-        corpses = {}
+        corpses = {},
+        slime = {}
       }
     end
   end
@@ -291,7 +292,9 @@ function init_player()
     dead_t = nil,
     throw_cd = 0,
     throw_held = false,
-    weapons = {}
+    weapons = {},
+    trail_t = 0,
+    trail_rate = 4
   }
 end
 
@@ -478,11 +481,21 @@ function update_player()
   end
 
   local dx, dy = move_x * spd, move_y * spd
+  local old_x, old_y = p.x, p.y
   p.x, p.y = sweep_move(
     p.x, p.y, dx, dy, function(nx, ny)
       return room_collides(nx, ny, p.w, p.h)
     end
   )
+  if p.x != old_x or p.y != old_y then
+    p.trail_t = (p.trail_t or 0) - 1
+    if p.trail_t <= 0 then
+      add_slime(p.x + p.w / 2, p.y + p.h - 1)
+      p.trail_t = p.trail_rate or 4
+    end
+  else
+    p.trail_t = 0
+  end
 
   if p.combo_t > 0 then
     p.combo_t -= 1
@@ -862,7 +875,18 @@ function player_hit(e, dmg)
   if hit_dmg < 1 then
     hit_dmg = 1
   end
-  p.invuln_t = 20
+  local back_x = sgn(p.x - e.x)
+  local back_y = sgn(p.y - e.y)
+  local slime_x = p.x + p.w / 2 + back_x * 3
+  local slime_y = p.y + p.h / 2 + back_y * 3
+  for i = 1, 15 do
+    add_slime(
+      slime_x + back_x * rnd(i) * 2 + rnd(3) - 1.5,
+      slime_y + back_y * rnd(i) * 2 + rnd(3) - 1.5
+    )
+  end
+  trail_fx(slime_x, slime_y, 6, { 11, 10, 3 }, 6)
+  p.invuln_t = 25
   if #p.weapons > 0 then
     local top = p.weapons[#p.weapons]
     top.dur -= hit_dmg
@@ -1013,6 +1037,28 @@ function room_collides(x, y, w, h)
     return true
   end
   return false
+end
+
+function add_slime(x, y)
+  local room = state.rooms[state.room_x][state.room_y]
+  room.slime = room.slime or {}
+  local c = rnd(1) < 0.5 and 11 or 10
+  add(room.slime, { x = x + rnd(3) - 1.5, y = y + rnd(3) - 1.5, c = c, r = 1 })
+  if #room.slime > 120 then
+    deli(room.slime, 1)
+  end
+end
+
+function draw_slime()
+  local room = state.rooms[state.room_x][state.room_y]
+  if not room.slime then return end
+  for s in all(room.slime) do
+    if s.r and s.r > 1 then
+      circfill(s.x, s.y, s.r, s.c)
+    else
+      pset(s.x, s.y, s.c)
+    end
+  end
 end
 
 function draw_room()
