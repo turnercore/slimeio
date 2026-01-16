@@ -125,30 +125,6 @@ function add_screen_flash(duration, col)
   return f
 end
 
-function add_muzzle_flash(tracking_obj, offset_x, offset_y, max_radius, duration, col, alt_col)
-  local e = {
-    tracking = tracking_obj,
-    offset_x = offset_x or 0,
-    offset_y = offset_y or 0,
-    alt_col = alt_col or 7,
-    t = duration or 4,
-    dec = true,
-    col = col or 7,
-    max_radius = max_radius or 3,
-    dur = duration or 4,
-    draw = function(self)
-      local r = flr((self.t / (self.dur or 4)) * self.max_radius)
-      if r <= 0 then return end
-      circfill(self.tracking.x + self.offset_x, self.tracking.y + self.offset_y, r, self.col)
-      if r > 2 then
-        circfill(self.tracking.x + self.offset_x, self.tracking.y + self.offset_y, r - 2, self.alt_col)
-      end
-    end
-  }
-  add(state.muzzle_flashes, e)
-  return e
-end
-
 function add_sprite_flash(obj, base_cols, flash_col, duration)
   obj.flash = {
     is_flashing = true,
