@@ -3,7 +3,15 @@ function draw_ui()
   local weapon_count = #state.player.weapons
   local combo_slot = 0
   if weapon_count > 0 then
-    combo_slot = state.player.combo_step > 0 and state.player.combo_step or 1
+    local max_combo = min(weapon_count, 4)
+    if state.player.combo_step > 0 and state.player.combo_t and state.player.combo_t > 0 then
+      combo_slot = state.player.combo_step + 1
+      if combo_slot > max_combo then
+        combo_slot = 1
+      end
+    else
+      combo_slot = 1
+    end
   end
 
   rectfill(0, 75, 11, 127, 0)
@@ -44,7 +52,7 @@ function draw_ui()
   if state.pickup_t and state.pickup_t > 0 and state.pickup_msg then
     state.pickup_t -= 1
     local msg = state.pickup_msg
-    local x = 20
+    local x = 14
     local y = 122
     print(msg, x, y, 7)
   end

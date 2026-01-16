@@ -277,7 +277,6 @@ function init_player()
     w = 8,
     h = 8,
     hp = 1,
-    max_hp = 1,
     speed = 1.3,
     last_dir = { x = 1, y = 0 },
     facing = "right",
@@ -294,7 +293,8 @@ function init_player()
     throw_held = false,
     weapons = {},
     trail_t = 0,
-    trail_rate = 4
+    trail_rate = 4,
+    moving = false
   }
 end
 
@@ -417,6 +417,7 @@ function update_player()
     if p.dead_t == nil then
       p.dead_t = 68
       state.gameover_t = 0
+      sfx(5)
     elseif p.dead_t > 0 then
       p.dead_t -= 1
     end
@@ -487,7 +488,8 @@ function update_player()
       return room_collides(nx, ny, p.w, p.h)
     end
   )
-  if p.x != old_x or p.y != old_y then
+  p.moving = p.x != old_x or p.y != old_y
+  if p.moving then
     p.trail_t = (p.trail_t or 0) - 1
     if p.trail_t <= 0 then
       add_slime(p.x + p.w / 2, p.y + p.h - 1)
@@ -547,6 +549,19 @@ function start_attack()
       p.combo_step = 1
     end
     p.combo_t = 45
+  end
+  if weapon_count <= 0 then
+    sfx(10)
+  else
+    if p.combo_step == 1 then
+      sfx(11)
+    elseif p.combo_step == 2 then
+      sfx(12)
+    elseif p.combo_step == 3 then
+      sfx(13)
+    else
+      sfx(14)
+    end
   end
   p.attack_hit = {}
   p.attack_boxes, p.attack_dmg, p.attack_t = get_attack_data(p)
@@ -633,11 +648,13 @@ function start_dodge()
   local p = state.player
   p.dodge_t = 8
   p.invuln_t = max(p.invuln_t, 10)
+  sfx(3)
 end
 
 function try_throw_weapon()
   local p = state.player
   if #p.weapons <= 0 then return end
+  sfx(4)
   local weapon = p.weapons[1]
   local spawn_trail = weapon.dur and weapon.dur > 0
   deli(p.weapons, 1)
@@ -679,6 +696,7 @@ function update_enemies()
   for i = #state.enemies, 1, -1 do
     local e = state.enemies[i]
     if e.hp <= 0 then
+      sfx(8)
       state.score = (state.score or 0) + (e.max_hp or 0) * 10
       add_explosion(e.x + 4, e.y + 4, 1, 5, 8)
       local df = e.death_frames or { 20, 21 }
@@ -795,6 +813,7 @@ function spawn_enemy_projectile(e, p)
       dmg = e.projectile_dmg or 1
     }
   )
+  sfx(7)
 end
 
 function update_enemy_projectiles()
@@ -863,6 +882,7 @@ function update_drops()
         add(p.weapons, { spr = d.spr, dmg = d.dmg or stats.dmg, dur = d.dur or stats.dur })
         state.pickup_msg = weapon_name(d.spr) .. ": " .. (d.dmg or stats.dmg) .. "DMG, " .. (d.dur or stats.dur) .. "DUR"
         state.pickup_t = 90
+        sfx(9)
         deli(state.drops, i)
       end
     end
@@ -875,6 +895,7 @@ function player_hit(e, dmg)
   if hit_dmg < 1 then
     hit_dmg = 1
   end
+  local play_hit_sfx = p.invuln_t <= 0 and hit_dmg > 0
   local back_x = sgn(p.x - e.x)
   local back_y = sgn(p.y - e.y)
   local slime_x = p.x + p.w / 2 + back_x * 3
@@ -888,12 +909,19 @@ function player_hit(e, dmg)
   trail_fx(slime_x, slime_y, 6, { 11, 10, 3 }, 6)
   p.invuln_t = 25
   if #p.weapons > 0 then
+    if play_hit_sfx then
+      local slice = flr(rnd(3)) * 3
+      sfx(1, -1, slice, 3)
+    end
     local top = p.weapons[#p.weapons]
     top.dur -= hit_dmg
     if top.dur <= 0 then
       deli(p.weapons, #p.weapons)
     end
   else
+    if play_hit_sfx then
+      sfx(2)
+    end
     p.hp = max(0, p.hp - hit_dmg)
   end
 
@@ -910,6 +938,8 @@ function player_hit(e, dmg)
 end
 
 function damage_enemy(e, dmg, from_throw, src_x, src_y, kb)
+  local slice = flr(rnd(3)) * 3
+  sfx(6, -1, slice, 3)
   e.hp -= dmg
   blood_fx(e.x + e.w / 2, e.y + e.h / 2, 2, { 8, 2, 1 }, 4)
   local stun = from_throw and 90 or 8
@@ -1095,6 +1125,14 @@ function draw_player()
     if p.facing == "up" then spr_id = 3 end
     if p.facing == "down" then spr_id = 4 end
     if p.facing == "left" then spr_id = 5 end
+    if p.attack_t and p.attack_t > 0 then
+      spr_id += 16
+    elseif p.moving then
+      local anim = ((state.t or 0) \ 8) % 2
+      if anim == 1 then
+        spr_id += 16
+      end
+    end
     spr(spr_id, p.x, p.y)
   end
   if p.attack_t > 0 and p.attack_boxes then
