@@ -1,14 +1,33 @@
 function draw_ui()
   local x, y = 2, 2
-  for i = 1, 4 do
-    rect(x, y + (i - 1) * 10, x + 9, y + (i - 1) * 10 + 9, 7)
-    if state.player.weapons[i] then
-      spr(state.player.weapons[i].spr, x + 1, y + (i - 1) * 10 + 1)
+  local weapon_count = #state.player.weapons
+  local combo_slot = 0
+  if weapon_count > 0 then
+    combo_slot = state.player.combo_step > 0 and state.player.combo_step or 1
+  end
+
+  for slot = 1, 4 do
+    local sy = y + (4 - slot) * 10
+    local outline = 7
+    if slot == combo_slot and slot <= weapon_count then
+      outline = 10
+    end
+    rect(x, sy, x + 9, sy + 9, outline)
+    if state.player.weapons[slot] then
+      spr(state.player.weapons[slot].spr, x + 1, sy + 1)
     end
   end
-  local max_hp = state.player.max_hp or 1
-  for i = 1, max_hp do
-    local col = (i <= state.player.hp) and 8 or 5
-    rectfill(112 + (i - 1) * 5, 2, 115 + (i - 1) * 5, 5, col)
+
+  local heart_y = y + 4 * 10
+  if weapon_count == 0 then
+    spr(48, x + 1, heart_y + 1)
   end
+
+  local room = state.rooms[state.room_x][state.room_y]
+  if room.spawn_pending and not room.cleared then
+    local secs = max(0, flr((room.spawn_t + 29) / 30))
+    print(secs, 60, 2, 7)
+  end
+  print("floor "..(state.level or 1), 96, 2, 7)
+  print("room "..state.room_x..","..state.room_y, 80, 10, 7)
 end
