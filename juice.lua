@@ -195,9 +195,97 @@ end
 
 function update_juice()
   update_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
+  update_fx()
   update_ss()
 end
 
 function draw_juice()
   draw_anim_lists({ state.explosions, state.death_anims, state.muzzle_flashes, state.screen_flashes })
+  draw_fx()
+end
+
+-- particle helpers
+function add_fx(x, y, die, dx, dy, grav, grow, shrink, r, c_table)
+  local fx = {
+    x = x,
+    y = y,
+    t = 0,
+    die = die,
+    dx = dx,
+    dy = dy,
+    grav = grav,
+    grow = grow,
+    shrink = shrink,
+    r = r,
+    c = 0,
+    c_table = c_table
+  }
+  add(state.effects, fx)
+end
+
+function update_fx()
+  if not state.effects then return end
+  for fx in all(state.effects) do
+    fx.t += 1
+    if fx.t > fx.die then
+      del(state.effects, fx)
+    else
+      local phase = fx.t / fx.die
+      local n = #fx.c_table
+      local idx = min(n, flr(phase * n) + 1)
+      fx.c = fx.c_table[idx]
+
+      if fx.grav then fx.dy += 0.5 end
+      if fx.grow then fx.r += 0.1 end
+      if fx.shrink then fx.r -= 0.1 end
+
+      fx.x += fx.dx
+      fx.y += fx.dy
+    end
+  end
+end
+
+function draw_fx()
+  if not state.effects then return end
+  for fx in all(state.effects) do
+    if fx.r <= 1 then
+      pset(fx.x, fx.y, fx.c)
+    else
+      circfill(fx.x, fx.y, fx.r, fx.c)
+    end
+  end
+end
+
+function trail_fx(x, y, w, c_table, num)
+  for i = 0, num do
+    add_fx(
+      x + rnd(w) - w / 2,
+      y + rnd(w) - w / 2,
+      18 + rnd(10),
+      0,
+      0,
+      false,
+      false,
+      true,
+      1,
+      c_table
+    )
+  end
+end
+
+function blood_fx(x, y, r, c_table, num)
+  for i = 0, num do
+    add_fx(
+      x,
+      y,
+      20 + rnd(10),
+      rnd(2) - 1,
+      rnd(2) - 1,
+      false,
+      false,
+      true,
+      r,
+      c_table
+    )
+  end
 end

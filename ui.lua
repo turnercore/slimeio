@@ -20,7 +20,10 @@ function draw_ui()
 
   local heart_y = y + 4 * 10
   if weapon_count == 0 then
-    spr(48, x + 1, heart_y + 1)
+    local frames = { 48, 49, 50, 49 }
+    local t = state.t or 0
+    local idx = (t \ 18) % #frames + 1
+    spr(frames[idx], x + 1, heart_y + 1)
   end
 
   local room = state.rooms[state.room_x][state.room_y]

@@ -1,4 +1,4 @@
-PLAYER_SPIRTE = { 1, 2, 3 }
+PLAYER_SPIRTE = { 1, 2, 3, 4, 5, 6 }
 ENEMY_SPRITE = { 17, 18, 19 }
 WEAPON_SPRITES = {
   SWORD = 10,
@@ -18,6 +18,7 @@ state = {}
 function _init()
   srand(time())
   state = {
+    mode = "menu",
     map_w = 5,
     map_h = 5,
     rooms = {},
@@ -28,21 +29,32 @@ function _init()
     enemies = {},
     drops = {},
     projectiles = {},
+    corpses = {},
+    effects = {},
     explosions = {},
     death_anims = {},
     muzzle_flashes = {},
     screen_flashes = {},
     paused = false,
     pause_t = 0,
-    t = 0
+    t = 0,
+    floor_style = nil,
+    logo_t = 0
   }
 
+  state.floor_style = pick_floor_style()
   init_map()
   init_player()
   enter_room(state.room_x, state.room_y, true)
 end
 
 function _update()
+  if state.mode == "menu" then
+    if state.menu_ready and (btnp(4) or btnp(5)) then
+      state.mode = "game"
+    end
+    return
+  end
   if state.paused then
     state.pause_t -= 1
     if state.pause_t <= 0 then
@@ -65,8 +77,16 @@ end
 
 function _draw()
   cls()
+  pal()
+  palt(0, true)
+  if state.mode == "menu" then
+    draw_menu()
+    return
+  end
   apply_ss()
   draw_room()
+  draw_spawn_markers()
+  draw_corpses()
   draw_drops()
   draw_projectiles()
   draw_enemies()
@@ -74,12 +94,95 @@ function _draw()
   draw_anims(state.explosions)
   draw_anims(state.death_anims)
   draw_anims(state.screen_flashes)
+  draw_fx()
   draw_ui()
+end
+
+function draw_menu()
+  cls(-14)
+  if not state.logo_w then
+    init_shiny_logo("slimeo's saga", { 7, 12, 3, 11 })
+  end
+  local wipe_w = min(state.logo_t, 61)
+  local ry = state.logo_center_y - 2
+  local rx = state.logo_rect_center_x
+  local ty = state.logo_center_y
+  local tx = state.logo_text_center_x
+  if state.logo_moved then
+    ry = flr(state.logo_center_y + (state.logo_y_target - state.logo_center_y) * state.logo_move_t) - 2
+    rx = flr(state.logo_rect_center_x + (state.logo_rect_target_x - state.logo_rect_center_x) * state.logo_move_t)
+    ty = flr(state.logo_center_y + (state.logo_y_target - state.logo_center_y) * state.logo_move_t)
+    tx = flr(state.logo_text_center_x + (state.logo_text_target_x - state.logo_text_center_x) * state.logo_move_t)
+  end
+  clip(rx, ry, wipe_w, 10)
+  rrect(rx, ry, 61, 10, 2, 14)
+  clip()
+  draw_shiny_logo("slimeo's saga", tx, ty, { 7, 12, 3, 11 })
+  if state.logo_t < state.logo_w then
+    state.logo_t += 1
+    return
+  end
+  if not state.logo_moved then
+    state.logo_moved = true
+    state.logo_move_t = 0
+  end
+  if state.logo_move_t < 1 then
+    state.logo_move_t = min(1, state.logo_move_t + 0.05)
+    return
+  end
+  if not state.menu_music_started then
+    music(0)
+    state.menu_music_started = true
+  end
+  state.menu_ready = true
+  if not state.menu_typed then
+    state.menu_typed = true
+    print("\^d2press o or x to start", 22, 40, 7)
+  else
+    print("press o or x to start", 22, 40, 7)
+  end
+  print("controls", 8, 72, 6)
+  print("move", 8, 82, 11)
+  print("attack", 8, 92, 11)
+  print("dodge", 8, 102, 11)
+  print("throw", 8, 112, 11)
+  print(": UP/DOWN/LEFT/RIGHT", 40, 82, 7)
+  print(": x (keyboard Z)", 40, 92, 7)
+  print(": o (keyboard X)", 40, 102, 7)
+  print(": x+o", 40, 112, 7)
+end
+
+function init_shiny_logo(txt, cols)
+  clip(0, 0, 0, 0)
+  local w, h = print(txt, 0, 0)
+  clip()
+  state.logo_w = w + (#cols - 1) * 3
+  state.logo_h = h
+  state.logo_t = 0
+  state.logo_y_target = 19
+  state.logo_center_y = flr(64 - (h / 2))
+  state.logo_rect_center_x = 35
+  state.logo_rect_target_x = 35
+  state.logo_text_center_x = 40
+  state.logo_text_target_x = 40
+  state.logo_moved = false
+  state.logo_move_t = 0
+  state.menu_music_started = false
+  state.menu_ready = false
+  sfx(0)
+end
+
+function draw_shiny_logo(txt, x, y, cols)
+  local h = state.logo_h
+  for layer = 0, #cols - 1 do
+    clip(x, y, state.logo_t - 3 * layer, h)
+    print(txt, x, y, cols[layer + 1])
+  end
+  clip()
 end
 
 function init_map()
   state.start_room = { x = state.room_x, y = state.room_y }
-  local floor_cols = { 1, 2, 3, 4 }
   for x = 1, state.map_w do
     state.rooms[x] = {}
     for y = 1, state.map_h do
@@ -89,7 +192,8 @@ function init_map()
         cleared = false,
         spawn_pending = false,
         spawn_t = 0,
-        floor_col = floor_cols[flr(rnd(#floor_cols)) + 1]
+        drops = {},
+        corpses = {}
       }
     end
   end
@@ -149,6 +253,7 @@ function init_player()
     max_hp = 1,
     speed = 1.3,
     last_dir = { x = 1, y = 0 },
+    facing = "right",
     invuln_t = 0,
     dodge_t = 0,
     attack_t = 0,
@@ -156,6 +261,7 @@ function init_player()
     combo_step = 0,
     combo_t = 0,
     attack_cd = 0,
+    attack_held = false,
     throw_cd = 0,
     throw_held = false,
     weapons = {}
@@ -165,9 +271,13 @@ end
 function enter_room(rx, ry, from_init)
   state.room_x, state.room_y = rx, ry
   state.enemies = {}
-  state.drops = {}
   state.projectiles = {}
   local room = state.rooms[rx][ry]
+  room.drops = room.drops or {}
+  room.corpses = room.corpses or {}
+  state.drops = room.drops
+  state.corpses = room.corpses
+  room.spawn_markers = {}
   room.spawn_t = 75
   room.spawn_pending = not room.cleared
   if not room.generated then
@@ -179,7 +289,8 @@ function enter_room(rx, ry, from_init)
       local count = flr(rnd(3)) + 2
       room.spawn_list = {}
       for i = 1, count do
-        add(room.spawn_list, make_enemy())
+        local e = make_enemy()
+        add(room.spawn_list, e)
       end
     end
   elseif room.cleared then
@@ -188,7 +299,13 @@ function enter_room(rx, ry, from_init)
     local count = flr(rnd(2)) + 1
     room.spawn_list = {}
     for i = 1, count do
-      add(room.spawn_list, make_enemy())
+      local e = make_enemy()
+      add(room.spawn_list, e)
+    end
+  end
+  if room.spawn_pending and room.spawn_list then
+    for e in all(room.spawn_list) do
+      add(room.spawn_markers, { x = e.x, y = e.y, t = 0 })
     end
   end
 
@@ -251,12 +368,13 @@ function update_player()
   end
 
   if not both_held then
-    if btnp(4) and p.attack_t <= 0 and p.dodge_t <= 0 and p.attack_cd <= 0 then
+    if btn(4) and not p.attack_held and p.attack_t <= 0 and p.dodge_t <= 0 and p.attack_cd <= 0 then
       start_attack()
     elseif btnp(5) and p.dodge_t <= 0 then
       start_dodge()
     end
   end
+  p.attack_held = btn(4)
 
   local move_x, move_y = 0, 0
   if btn(0) then move_x -= 1 end
@@ -267,6 +385,11 @@ function update_player()
   if move_x != 0 or move_y != 0 then
     local len = sqrt(move_x * move_x + move_y * move_y)
     p.last_dir = { x = move_x / len, y = move_y / len }
+    if abs(move_x) >= abs(move_y) then
+      if move_x > 0 then p.facing = "right" else p.facing = "left" end
+    else
+      if move_y > 0 then p.facing = "down" else p.facing = "up" end
+    end
   end
 
   local spd = p.speed
@@ -305,7 +428,7 @@ function handle_exit()
   if state.room_x != state.exit_room.x or state.room_y != state.exit_room.y then
     return
   end
-  if collisions.rect_rect(p.x, p.y, p.w, p.h, 60, 60, 8, 8) and btnp(3) then
+  if aabb(p.x, p.y, p.w, p.h, 56, 56, 16, 16) and btnp(3) then
     new_level()
   end
 end
@@ -313,6 +436,7 @@ end
 function new_level()
   state.level = (state.level or 1) + 1
   state.room_x, state.room_y = 3, 3
+  state.floor_style = pick_floor_style()
   init_map()
   enter_room(state.room_x, state.room_y, true)
   state.player.x, state.player.y = 64, 64
@@ -334,6 +458,7 @@ function start_attack()
   end
   p.attack_hit = {}
   p.attack_boxes, p.attack_dmg, p.attack_t = get_attack_data(p)
+  p.attack_dur = p.attack_t
   p.attack_fx_kind = p.combo_step
   p.attack_fx_weapon = nil
   if weapon_count > 0 then
@@ -352,7 +477,7 @@ function do_attack_hit()
     local e = state.enemies[i]
     if not p.attack_hit[e] then
       for b in all(p.attack_boxes) do
-        if collisions.rect_rect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, e.x, e.y, e.w, e.h) then
+        if aabb(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, e.x, e.y, e.w, e.h) then
           p.attack_hit[e] = true
           damage_enemy(e, dmg, false, p.x + p.w / 2, p.y + p.h / 2, 3)
           break
@@ -400,7 +525,7 @@ function get_attack_data(p)
     add(boxes, { x = p.x - 4, y = p.y - 4, w = 16, h = 16 })
     dur = 6
   else
-    for i = 1, 3 do
+    for i = 0, 3 do
       local dist = 8 * i
       local ax = center_x + dir.x * dist - 4
       local ay = center_y + dir.y * dist - 4
@@ -426,6 +551,7 @@ function try_throw_weapon()
   if weapon.dur <= 0 then
     weapon.dur = 0
   end
+  local spawn_trail = weapon.dur > 0
   deli(p.weapons, 1)
   p.combo_step = 0
   p.combo_t = 0
@@ -440,7 +566,8 @@ function try_throw_weapon()
     dy = dir.y * 3.2,
     spr = weapon.spr,
     dmg = weapon.dmg or 1,
-    dur = weapon.dur or 0
+    dur = weapon.dur or 0,
+    trail = spawn_trail
   }
   add(state.projectiles, proj)
 end
@@ -456,6 +583,7 @@ function update_enemies()
           add(state.enemies, e)
         end
         room.spawn_list = nil
+        room.spawn_markers = nil
       end
     end
   end
@@ -464,6 +592,8 @@ function update_enemies()
     local e = state.enemies[i]
     if e.hp <= 0 then
       add_explosion(e.x + 4, e.y + 4, 1, 5, 8)
+      add_death_anim(e.x + 4, e.y + 4, { 20, 21 }, 6, 1, 1)
+      add(state.corpses, { x = e.x, y = e.y, spr = 21 })
       if e.force_drop or rnd(1) < 0.6 then
         add(state.drops, make_drop(e.x, e.y))
       end
@@ -497,7 +627,7 @@ function update_enemies()
       end
 
       if p.hp > 0 and not e.no_attack then
-        if p.invuln_t <= 0 and collisions.rect_rect(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h) then
+        if p.invuln_t <= 0 and aabb(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h) then
           player_hit(e, e.dmg or 1)
         end
       end
@@ -513,18 +643,19 @@ end
 function update_projectiles()
   for i = #state.projectiles, 1, -1 do
     local pr = state.projectiles[i]
+    if pr.trail then
+      trail_fx(pr.x + pr.w / 2, pr.y + pr.h / 2, 2, { 12, 13, 1 }, 1)
+    end
     local nx, ny = pr.x + pr.dx, pr.y + pr.dy
     if room_collides(nx, ny, pr.w, pr.h) then
-      if (pr.dur or 0) > 0 then
-        add(state.drops, { x = pr.x, y = pr.y, spr = pr.spr, dmg = pr.dmg, dur = pr.dur })
-      end
+      add(state.drops, { x = pr.x, y = pr.y, spr = pr.spr, dmg = pr.dmg, dur = pr.dur })
       deli(state.projectiles, i)
     else
       pr.x, pr.y = nx, ny
       local hit = false
       for j = #state.enemies, 1, -1 do
         local e = state.enemies[j]
-        if collisions.rect_rect(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
+        if aabb(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
           apply_throw_impact(pr)
           hit = true
           break
@@ -554,13 +685,15 @@ function apply_throw_impact(pr)
       if len > 0 then
         local kx = dx / len * 4
         local ky = dy / len * 4
-        e.x, e.y = sweep_move(e.x, e.y, kx, ky, function(nx, ny)
-          return room_collides(nx, ny, e.w, e.h)
-        end)
+        e.x, e.y = sweep_move(
+          e.x, e.y, kx, ky, function(nx, ny)
+            return room_collides(nx, ny, e.w, e.h)
+          end
+        )
       end
       hit_any = true
     end
-    if collisions.rect_rect(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
+    if aabb(pr.x, pr.y, pr.w, pr.h, e.x, e.y, e.w, e.h) then
       damage_enemy(e, pr.dmg or 1, true, cx, cy, 2)
     end
   end
@@ -580,7 +713,7 @@ function update_drops()
       d.vx *= 0.9
       d.vy *= 0.9
     end
-    if (not d.fly_t or d.fly_t <= 0) and collisions.rect_rect(p.x, p.y, p.w, p.h, d.x, d.y, 8, 8) then
+    if (not d.fly_t or d.fly_t <= 0) and aabb(p.x, p.y, p.w, p.h, d.x, d.y, 8, 8) then
       if #p.weapons < 4 then
         local stats = weapon_stats(d.spr)
         add(p.weapons, { spr = d.spr, dmg = d.dmg or stats.dmg, dur = d.dur or stats.dur })
@@ -621,6 +754,7 @@ end
 
 function damage_enemy(e, dmg, from_throw, src_x, src_y, kb)
   e.hp -= dmg
+  blood_fx(e.x + e.w / 2, e.y + e.h / 2, 2, { 8, 2, 1 }, 4)
   local stun = from_throw and 90 or 8
   e.stun_t = max(e.stun_t or 0, stun)
   if src_x and src_y and kb and kb > 0 then
@@ -632,9 +766,11 @@ function damage_enemy(e, dmg, from_throw, src_x, src_y, kb)
       dy = dy / len
       local kx = dx * kb
       local ky = dy * kb
-      e.x, e.y = sweep_move(e.x, e.y, kx, ky, function(nx, ny)
-        return room_collides(nx, ny, e.w, e.h)
-      end)
+      e.x, e.y = sweep_move(
+        e.x, e.y, kx, ky, function(nx, ny)
+          return room_collides(nx, ny, e.w, e.h)
+        end
+      )
     end
   end
 end
@@ -656,11 +792,16 @@ function make_drop(x, y)
   }
 end
 
+function pick_floor_style()
+  local solid_cols = { -1, -2, -3, -4, -5, -6, -7 }
+  return { kind = "solid", col = solid_cols[flr(rnd(#solid_cols)) + 1] }
+end
+
 function weapon_stats(spr)
   local stats = {
-    [WEAPON_SPRITES.SWORD] = { dmg = 1, dur = 1 },
-    [WEAPON_SPRITES.PAN] = { dmg = 1, dur = 1 },
-    [WEAPON_SPRITES.SHIELD] = { dmg = 1, dur = 1 },
+    [WEAPON_SPRITES.SWORD] = { dmg = 2, dur = 1 },
+    [WEAPON_SPRITES.PAN] = { dmg = 1, dur = 2 },
+    [WEAPON_SPRITES.SHIELD] = { dmg = 1, dur = 3 },
     [WEAPON_SPRITES.BROOM] = { dmg = 1, dur = 1 }
   }
   return stats[spr] or { dmg = 1, dur = 1 }
@@ -733,7 +874,7 @@ end
 
 function draw_room()
   local room = state.rooms[state.room_x][state.room_y]
-  rectfill(0, 0, 127, 127, room.floor_col or 1)
+  draw_floor()
   local t = 6
   rectfill(0, 0, 127, t, 5)
   rectfill(0, 127 - t, 127, 127, 5)
@@ -748,22 +889,38 @@ function draw_room()
   if room.doors.e and not locked then rectfill(127 - t, 64 - door_w / 2, 127, 64 + door_w / 2, 1) end
 
   if room.cleared and state.room_x == state.exit_room.x and state.room_y == state.exit_room.y then
-    spr(62, 56, 56, 2, 2)
+    draw_scaled_sprite(62, 56, 56, 16, 16)
   end
   if state.room_x == state.start_room.x and state.room_y == state.start_room.y then
-    spr(63, 56, 56, 2, 2)
+    draw_scaled_sprite(63, 56, 56, 16, 16)
   end
+end
+
+function draw_scaled_sprite(id, dx, dy, dw, dh)
+  local sx = (id % 16) * 8
+  local sy = flr(id / 16) * 8
+  sspr(sx, sy, 8, 8, dx, dy, dw, dh)
+end
+
+function draw_floor()
+  local style = state.floor_style
+  rectfill(0, 0, 127, 127, style and style.col or 1)
 end
 
 function draw_player()
   local p = state.player
   if p.hp <= 0 then
-    spr(6, p.x, p.y)
+    spr(PLAYER_SPIRTE[6], p.x, p.y)
     return
   end
   local flicker = p.invuln_t > 0 and (p.invuln_t % 4) < 2
   if not flicker then
-    spr(PLAYER_SPIRTE[1], p.x, p.y)
+    local spr_id = PLAYER_SPIRTE[1]
+    if p.facing == "right" then spr_id = PLAYER_SPIRTE[2] end
+    if p.facing == "up" then spr_id = PLAYER_SPIRTE[3] end
+    if p.facing == "down" then spr_id = PLAYER_SPIRTE[4] end
+    if p.facing == "left" then spr_id = PLAYER_SPIRTE[5] end
+    spr(spr_id, p.x, p.y)
   end
   if p.attack_t > 0 and p.attack_boxes then
     draw_attack_fx(p)
@@ -775,43 +932,68 @@ function draw_attack_fx(p)
   local cx = p.x + p.w / 2
   local cy = p.y + p.h / 2
   local px, py = -dir.y, dir.x
-  local col = 10
-  local spr_id = p.attack_fx_weapon
+  local spr_id, flipx, flipy = weapon_sprite_for_dir(p.attack_fx_weapon, dir.x, dir.y)
+  local t = p.attack_t or 0
+  local dur = max(1, p.attack_dur or 1)
+  local prog = 1 - t / dur
 
   if #p.weapons <= 0 or p.attack_fx_kind == 0 then
+    local max_len = 8
+    local phase = prog < 0.5 and prog * 2 or (1 - prog) * 2
+    local len = max_len * phase
+    local w = 3
+    local sx = cx + dir.x * len
+    local sy = cy + dir.y * len
+    local ex = cx
+    local ey = cy
+    local lx = min(sx, ex)
+    local ly = min(sy, ey)
+    local rx = max(sx, ex)
+    local ry = max(sy, ey)
+    rectfill(lx - w / 2, ly - w / 2, rx + w / 2, ry + w / 2, 11)
     return
   end
 
   if p.attack_fx_kind == 1 then
+    local max_dist = 10
+    local phase = prog < 0.5 and prog * 2 or (1 - prog) * 2
+    local dist = max_dist * phase
     if spr_id then
-      spr(spr_id, cx + dir.x * 10 - 4, cy + dir.y * 10 - 4)
+      spr(spr_id, cx + dir.x * dist - 4, cy + dir.y * dist - 4, 1, 1, flipx, flipy)
     end
   elseif p.attack_fx_kind == 2 then
-    for i = -1, 1 do
-      local ox = px * i * 6
-      local oy = py * i * 6
-      if spr_id then
-        spr(spr_id, cx + ox + dir.x * 10 - 4, cy + oy + dir.y * 10 - 4)
-      end
+    local spread = 12
+    local sweep = (prog * 2) - 1
+    local ox = px * sweep * spread
+    local oy = py * sweep * spread
+    local fx = cx + ox + dir.x * 10
+    local fy = cy + oy + dir.y * 10
+    if spr_id then
+      spr(spr_id, fx - 4, fy - 4, 1, 1, flipx, flipy)
     end
   elseif p.attack_fx_kind == 3 then
+    local ang = prog
+    local r = 12
+    local ox = cos(ang) * r
+    local oy = sin(ang) * r
     if spr_id then
-      spr(spr_id, cx + 12 - 4, cy - 4)
-      spr(spr_id, cx - 12 - 4, cy - 4)
-      spr(spr_id, cx - 4, cy + 12 - 4)
-      spr(spr_id, cx - 4, cy - 12 - 4)
+      spr(spr_id, cx + ox - 4, cy + oy - 4, 1, 1, flipx, flipy)
     end
   else
-    line(cx, cy, cx + dir.x * 24, cy + dir.y * 24, col)
+    local max_dist = 24
+    local phase = prog < 0.5 and prog * 2 or (1 - prog) * 2
+    local dist = max_dist * phase
     if spr_id then
-      spr(spr_id, cx + dir.x * 22 - 4, cy + dir.y * 22 - 4)
+      spr(spr_id, cx + dir.x * dist - 4, cy + dir.y * dist - 4, 1, 1, flipx, flipy)
     end
   end
 end
 
 function draw_enemies()
   for e in all(state.enemies) do
-    spr(ENEMY_SPRITE[1], e.x, e.y)
+    local frames = { 17, 18, 19, 18 }
+    local idx = ((state.t or 0) \ 8) % #frames + 1
+    spr(frames[idx], e.x, e.y)
     if e.max_hp and e.hp < e.max_hp then
       local ratio = e.hp / e.max_hp
       local bw = 8
@@ -827,12 +1009,49 @@ end
 
 function draw_projectiles()
   for pr in all(state.projectiles) do
-    spr(pr.spr, pr.x, pr.y)
+    local spr_id, flipx, flipy = weapon_sprite_for_dir(pr.spr, pr.dx, pr.dy)
+    spr(spr_id, pr.x, pr.y, 1, 1, flipx, flipy)
   end
 end
 
 function draw_drops()
   for d in all(state.drops) do
     spr(d.spr, d.x, d.y)
+  end
+end
+
+function weapon_sprite_for_dir(spr_id, dx, dy)
+  if not spr_id then return nil, false, false end
+  local horiz = {
+    [WEAPON_SPRITES.SWORD] = 26,
+    [WEAPON_SPRITES.PAN] = 27,
+    [WEAPON_SPRITES.SHIELD] = 28,
+    [WEAPON_SPRITES.BROOM] = 29
+  }
+  local ax = abs(dx or 0)
+  local ay = abs(dy or 0)
+  if ax >= ay then
+    local base = horiz[spr_id] or spr_id
+    return base, (dx or 0) < 0, false
+  end
+  return spr_id, false, (dy or 0) > 0
+end
+
+function draw_corpses()
+  for c in all(state.corpses) do
+    spr(c.spr, c.x, c.y)
+  end
+end
+
+function draw_spawn_markers()
+  local room = state.rooms[state.room_x][state.room_y]
+  if not room.spawn_pending or not room.spawn_markers then
+    return
+  end
+  local frames = { 32, 33, 34, 33 }
+  for m in all(room.spawn_markers) do
+    m.t = (m.t or 0) + 1
+    local idx = (m.t \ 6) % #frames + 1
+    spr(frames[idx], m.x, m.y)
   end
 end
