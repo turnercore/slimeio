@@ -72,7 +72,7 @@ function _draw()
   end
   apply_ss()
   draw_room()
-  draw_slime()
+  draw_slime_trail()
   draw_spawn_markers()
   draw_corpses()
   draw_drops()
@@ -80,8 +80,7 @@ function _draw()
   draw_enemy_projectiles()
   draw_enemies()
   draw_player()
-  draw_anim_lists({ state.explosions, state.death_anims, state.screen_flashes })
-  draw_fx()
+  draw_juice()
   draw_ui()
   draw_game_over()
 end
@@ -490,7 +489,7 @@ function update_player()
   if p.moving then
     p.trail_t = p.trail_t - 1
     if p.trail_t <= 0 then
-      add_slime(p.x + p.w / 2, p.y + p.h - 1)
+      add_slime_trail(p.x + p.w / 2, p.y + p.h - 1)
       p.trail_t = p.trail_rate
     end
   else
@@ -899,7 +898,7 @@ function player_hit(e, dmg)
   local slime_x = p.x + p.w / 2 + back_x * 3
   local slime_y = p.y + p.h / 2 + back_y * 3
   for i = 1, 15 do
-    add_slime(
+    add_slime_trail(
       slime_x + back_x * rnd(i) * 2 + rnd(3) - 1.5,
       slime_y + back_y * rnd(i) * 2 + rnd(3) - 1.5
     )
@@ -1067,7 +1066,7 @@ function room_collides(x, y, w, h)
   return false
 end
 
-function add_slime(x, y)
+function add_slime_trail(x, y)
   local room = state.rooms[state.room_x][state.room_y]
   room.slime = room.slime or {}
   local c = rnd(1) < 0.5 and 11 or 10
@@ -1077,7 +1076,7 @@ function add_slime(x, y)
   end
 end
 
-function draw_slime()
+function draw_slime_trail()
   local room = state.rooms[state.room_x][state.room_y]
   if not room.slime then return end
   for s in all(room.slime) do

@@ -214,6 +214,11 @@ function update_juice()
   update_ss()
 end
 
+function draw_juice()
+  draw_anim_lists({ state.explosions, state.death_anims, state.screen_flashes })
+  draw_fx()
+end
+
 -- particle helpers
 function add_fx(x, y, die, dx, dy, grav, grow, shrink, r, c_table)
   local fx = {
