@@ -29,8 +29,8 @@ function update_anim(anim_list)
         deli(anim_list, i)
       end
       if a.dx or a.dy then
-        a.x = a.x + (a.dx or 0)
-        a.y = a.y + (a.dy or 0)
+        a.x = a.x + a.dx
+        a.y = a.y + a.dy
       end
       -- update flash timer if present
       if a.flash then
@@ -169,16 +169,16 @@ end
 
 -- screenshake helpers
 function ss(frames, mag)
-  frames = frames or 0
+  frames = frames
   if frames <= 0 then
     return
   end
-  state.ss_t = max(state.ss_t or 0, frames)
-  state.ss_mag = max(state.ss_mag or 0, mag or 1)
+  state.ss_t = max(state.ss_t, frames)
+  state.ss_mag = max(state.ss_mag, mag)
 end
 
 function update_ss()
-  local t = state.ss_t or 0
+  local t = state.ss_t
   if t > 0 then
     t -= 1
     state.ss_t = t
@@ -189,14 +189,13 @@ function update_ss()
 end
 
 function apply_ss()
-  local t = state.ss_t or 0
+  local t = state.ss_t
   if t <= 0 then
     camera()
     return
   end
-  local mag = state.ss_mag or 1
-  local ox = flr(rnd(mag * 2 + 1)) - mag
-  local oy = flr(rnd(mag * 2 + 1)) - mag
+  local ox = flr(rnd(state.ss_mag * 2 + 1)) - state.ss_mag
+  local oy = flr(rnd(state.ss_mag * 2 + 1)) - state.ss_mag
   camera(ox, oy)
 end
 
@@ -205,7 +204,7 @@ function hitstop(duration)
   if duration <= 0 then
     return
   end
-  state.pause_t = max(state.pause_t or 0, duration)
+  state.pause_t = max(state.pause_t, duration)
   state.paused = true
 end
 

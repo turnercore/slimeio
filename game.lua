@@ -28,7 +28,8 @@ function _init()
     pickup_msg = nil,
     pickup_t = 0,
     gameover_t = nil,
-    floor_color = rand_floor_color()
+    floor_color = rand_floor_color(),
+    ss_t = 0
   }
   init_map()
   init_player()
@@ -51,7 +52,7 @@ function _update()
     return
   end
 
-  state.t = (state.t or 0) + 1
+  state.t = state.t + 1
   if update_player() then
     update_juice()
     return
@@ -94,10 +95,10 @@ function draw_game_over()
   game_over_overlay_dim()
   -- rectfill(16, 44, 111, 88, 0)
   local msg = "you have slime'd"
-  local score_txt = "score " .. (state.score or 0)
+  local score_txt = "score " .. state.score
   local mx = (128 - (#msg * 4)) \ 2
   local sx = (128 - (#score_txt * 4)) \ 2
-  draw_shiny_text(msg, mx, 52, { 7, 11, 3, 8 }, state.gameover_t or 0)
+  draw_shiny_text(msg, mx, 52, { 7, 11, 3, 8 }, state.gameover_t)
   print(score_txt, sx, 62, 7)
   if p.dead_t and p.dead_t <= 0 then
     local restart = "press x or o to restart"
@@ -490,10 +491,10 @@ function update_player()
   )
   p.moving = p.x != old_x or p.y != old_y
   if p.moving then
-    p.trail_t = (p.trail_t or 0) - 1
+    p.trail_t = p.trail_t - 1
     if p.trail_t <= 0 then
       add_slime(p.x + p.w / 2, p.y + p.h - 1)
-      p.trail_t = p.trail_rate or 4
+      p.trail_t = p.trail_rate
     end
   else
     p.trail_t = 0
@@ -528,7 +529,7 @@ function handle_exit()
 end
 
 function new_level()
-  state.level = (state.level or 1) + 1
+  state.level = state.level + 1
   state.room_x, state.room_y = 3, 3
   state.floor_color = rand_floor_color()
   init_map()
@@ -697,7 +698,7 @@ function update_enemies()
     local e = state.enemies[i]
     if e.hp <= 0 then
       sfx(8)
-      state.score = (state.score or 0) + (e.max_hp or 0) * 10
+      state.score = state.score + e.max_hp * 10
       add_explosion(e.x + 4, e.y + 4, 1, 5, 8)
       local df = e.death_frames or { 20, 21 }
       add_death_anim(e.x + e.w / 2, e.y + e.h / 2, df, 6, e.scale or 1)
@@ -723,8 +724,8 @@ function update_enemies()
               e.wander_dy = sin(ang) * e.speed
             end
             e.wander_t -= 1
-            vx = e.wander_dx or 0
-            vy = e.wander_dy or 0
+            vx = e.wander_dx
+            vy = e.wander_dy
           end
           e.x, e.y = sweep_move(
             e.x, e.y, vx, vy, function(nx, ny)
@@ -735,7 +736,7 @@ function update_enemies()
       end
 
       if e.kind == "ranged" and p.hp > 0 then
-        e.shoot_t = (e.shoot_t or 0) - 1
+        e.shoot_t = e.shoot_t - 1
         if e.shoot_t <= 0 then
           spawn_enemy_projectile(e, p)
           e.shoot_t = e.shoot_cd or 60
@@ -845,8 +846,8 @@ function apply_throw_impact(pr)
     local dx = ex - cx
     local dy = ey - cy
     if dx * dx + dy * dy <= aoe_r2 then
-      damage_enemy(e, pr.dmg or 1, true, cx, cy, 2)
-      e.stun_t = max(e.stun_t or 0, 90)
+      damage_enemy(e, pr.dmg, true, cx, cy, 2)
+      e.stun_t = max(e.stun_t, 90)
       local len = sqrt(dx * dx + dy * dy)
       if len > 0 then
         local kx = dx / len * 4
@@ -943,7 +944,7 @@ function damage_enemy(e, dmg, from_throw, src_x, src_y, kb)
   e.hp -= dmg
   blood_fx(e.x + e.w / 2, e.y + e.h / 2, 2, { 8, 2, 1 }, 4)
   local stun = from_throw and 90 or 8
-  e.stun_t = max(e.stun_t or 0, stun)
+  e.stun_t = max(e.stun_t, stun)
   if src_x and src_y and kb and kb > 0 then
     local dx = e.x + e.w / 2 - src_x
     local dy = e.y + e.h / 2 - src_y
@@ -1128,7 +1129,7 @@ function draw_player()
     if p.attack_t and p.attack_t > 0 then
       spr_id += 16
     elseif p.moving then
-      local anim = ((state.t or 0) \ 8) % 2
+      local anim = (state.t \ 8) % 2
       if anim == 1 then
         spr_id += 16
       end
@@ -1146,7 +1147,7 @@ function draw_attack_fx(p)
   local cy = p.y + p.h / 2
   local px, py = -dir.y, dir.x
   local spr_id, flipx, flipy = weapon_sprite_for_dir(p.attack_fx_weapon, dir.x, dir.y)
-  local t = p.attack_t or 0
+  local t = p.attack_t
   local dur = max(1, p.attack_dur or 1)
   local prog = 1 - t / dur
 
@@ -1206,7 +1207,7 @@ function draw_enemies()
   for e in all(state.enemies) do
     local frames = e.frames or { 17, 18, 19, 18 }
     local spd = e.anim_speed or 8
-    local idx = ((state.t or 0) \ spd) % #frames + 1
+    local idx = (state.t \ spd) % #frames + 1
     draw_scaled_sprite(frames[idx], e.x, e.y, e.scale or 1)
     if e.max_hp and e.hp < e.max_hp then
       local ratio = e.hp / e.max_hp
@@ -1248,13 +1249,13 @@ function weapon_sprite_for_dir(spr_id, dx, dy)
     [12] = 28,
     [13] = 29
   }
-  local ax = abs(dx or 0)
-  local ay = abs(dy or 0)
+  local ax = abs(dx)
+  local ay = abs(dy)
   if ax >= ay then
     local base = horiz[spr_id] or spr_id
-    return base, (dx or 0) < 0, false
+    return base, dx < 0, false
   end
-  return spr_id, false, (dy or 0) > 0
+  return spr_id, false, dy > 0
 end
 
 function draw_corpses()
@@ -1270,7 +1271,7 @@ function draw_spawn_markers()
   end
   local frames = { 32, 33, 34, 33 }
   for m in all(room.spawn_markers) do
-    m.t = (m.t or 0) + 1
+    m.t = m.t + 1
     local idx = (m.t \ 6) % #frames + 1
     draw_scaled_sprite(frames[idx], m.x, m.y, m.scale or 1)
   end
